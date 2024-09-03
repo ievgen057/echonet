@@ -1,0 +1,253 @@
+networks:
+  echonet:
+    name: echonet
+  auth:
+    name: auth
+
+services:
+  traefik:
+    image: traefik:latest
+    container_name: traefik
+    labels:
+      - "traefik.enable=true"  # Включає Traefik для цього сервісу
+      - "traefik.http.routers.traefik.rule=Host(`traefik.localhost`)"  # Правило маршрутизації для дашборду
+      - "traefik.http.routers.traefik.entrypoints=traefik"  # Вказує вхідну точку для дашборду
+      - "traefik.http.routers.traefik.service=api@internal"  # Використовує внутрішній сервіс API
+      - "traefik.http.routers.traefik.tls=true"  # Включає TLS для дашборду
+      # - "traefik.http.routers.traefik.tls.certresolver=myresolver"  # Якщо використовуєте ACME, додайте свій резолвер
+      - "traefik.http.services.traefik.loadbalancer.server.port=8080"  # Вказує порт для дашборду
+      - "traefik.http.middlewares.auth.forwardauth.address=http://auth-service:${AUTH_HTTP_PORT}/auth/verify-token"
+      - "traefik.http.middlewares.auth.forwardauth.authResponseHeaders=Authorization, X-User-ID, X-User-Roles"
+      - "traefik.http.middlewares.auth.forwardauth.trustForwardHeader=true"
+    command:
+      - "--log.level=DEBUG"
+      - "--api.insecure=false" # Включення панелі адміністратора Traefik (небезпечно для продакшн)
+      # - "--configFile=/config/traefik.yml"
+      - "--providers.docker=true" # Активація провайдера Docker
+      - "--providers.file.filename=/config/dynamic.yml"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80" # Налаштування вхідної точки для HTTP
+      - "--entrypoints.websecure.address=:443" # Налаштування вхідної точки для HTTPS
+      - "--entrypoints.traefik.address=:8080"
+      # - "--entrypoints.websecure.http.tls=true"
+      # - "--certificatesresolvers.myresolver.acme.httpchallenge=true" # Налаштування ACME для автоматичного отримання SSL сертифікатів
+      # - "--certificatesresolvers.myresolver.acme.httpchallenge.entrypoint=web"
+      # - "--certificatesresolvers.myresolver.acme.email=jsilverhost@gmail.com" # Ваш email для Let's Encrypt
+      # - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json" # Місце зберігання сертифікатів
+    ports:
+      - "80:80" # Порт для HTTP
+      - "443:443" # Порт для HTTPS
+      - "8080:8080" # Порт для панелі адміністратора Traefik
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock" # Доступ до Docker API
+      # - "./services/traefik/certs/letsencrypt:/letsencrypt:ro" # Місце зберігання сертифікатів (використання ${PWD} для поточного каталогу)
+      - "./.certs/openssl/:/certs/"
+      - "./services/traefik/config/traefik-config.yml:/config/traefik.yml:ro"
+      - "./services/traefik/config/dynamic.yml:/config/dynamic.yml:ro"
+    networks:
+      - echonet
+    healthcheck:
+      test: ["CMD", "nc", "-zv", "localhost:8080"]
+      interval: 30s
+      timeout: 2s
+      retries: 5
+      start_period: 5s
+
+  db:
+    container_name: db
+    image: auth-db:latest
+    build:
+      context: ./microservices/auth-service/
+      dockerfile: mysql.dockerfile
+    restart: unless-stopped
+    env_file:
+      - path: ./microservices/auth-service/.db.env
+        required: true
+      - path: ./microservices/auth-service/.env
+        required: true
+    expose:
+      - ${MYSQL_PORT}
+    # environment:
+    #   MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    #   MYSQL_INITDB_SKIP_TZINFO: "1" 
+    #   DB_HOST: ${DB_HOST}
+    #   DB_USER: ${DB_USER}
+    #   DB_PASSWORD: ${DB_PASSWORD}
+    #   DB_NAME: ${DB_NAME}
+    #   TZ: ${TZ}
+    # ports:
+    #   - "${MYSQL_PORT}:3306"
+    volumes:
+      - S:/DOCKER_VOLUMES/auth_mysql_data:/var/lib/mysql
+      - ./microservices/auth-service/db_config/zzz-init-db.sh:/docker-entrypoint-initdb.d/zzz-init-db.sh:rx
+      - ./microservices/auth-service/db_config/create-tables.sql:/scripts/create-tables.sql:rx
+      - ./microservices/auth-service/.env:/scripts/.env
+      - ./microservices/auth-service/.env:/scripts/.db.env
+    command: --explicit_defaults_for_timestamp --tls-version=TLSv1.2 
+    labels:
+      - "traefik.enable=false"
+    depends_on:
+      traefik:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "${DB_HOST}", "-u", "${DB_USER}", "-p${DB_PASSWORD}"]
+      interval: 30s
+      timeout: 2s
+      retries: 5
+      start_period: 5s
+    networks:
+      - auth
+
+  auth-service:
+    container_name: ${AUTH_SERVICE_NAME}
+    image: auth-service:latest
+    build: 
+      context: ./microservices/auth-service/
+      dockerfile: auth.dockerfile
+    env_file:
+      - path: ./microservices/auth-service/.env
+        required: true
+      - path: ./microservices/auth-service/.auth.env
+        required: true
+      - path: ./microservices/auth-service/.db.env
+        required: true
+    develop:
+      watch:      
+        - action: sync+restart
+          path: ./microservices/auth-service/src/
+          target: /usr/src/auth-service/src/
+          ignore:
+            - node_modules/
+            - logs/
+        # - action: rebuild
+        #   path: ./microservices/auth-service/package.json
+        #   target: /usr/src/auth-service/package.json
+    #   - ${AUTH_HTTP_PORT}:${AUTH_HTTP_PORT}
+      # - ${AUTH_HTTPS_PORT}:${AUTH_HTTPS_PORT}
+    expose:
+      - ${AUTH_HTTP_PORT}
+      # - ${AUTH_HTTPS_PORT}
+    # environment:
+    #   - SERVICE_NAME=${SERVICE_NAME}
+    #   - CONSOLE_LOG_LEVEL=${CONSOLE_LOG_LEVEL}
+    #   - NODE_ENV=${NODE_ENV}   # if this comment app override vars from local .env
+    #   - USE_HTTP=${USE_HTTP}
+    #   - USE_HTTPS=${USE_HTTPS}
+    #   - AUTH_HTTP_PORT=${AUTH_HTTP_PORT}
+    #   - AUTH_HTTPS_PORT=${AUTH_HTTPS_PORT}
+    #   - HTTPS_CERT_PATH=${HTTPS_CERT_PATH}
+    #   - HTTPS_CERT_KEY_PATH=${HTTPS_CERT_KEY_PATH}
+    #   - AUTH_HOSTNAME=${AUTH_HOSTNAME}
+    #   - JWT_SECRET=${JWT_SECRET}
+    #   - DB_HOST=db
+    #   - DB_USER=${DB_USER}
+    #   - DB_PASSWORD=${DB_PASSWORD}
+    #   - DB_NAME=${DB_NAME}
+    #   - TZ=${TZ}
+    volumes:
+      - ./microservices/auth-service/.vscode/:/usr/src/auth-service/.vscode
+      # - ./microservices/auth-service/src/:/usr/src/auth-service/src/
+      - ./microservices/auth-service/.certs/:/usr/src/auth-service/.certs/:ro
+      - ./microservices/auth-service/package.json:/usr/src/auth-service/package.json
+      - ./microservices/auth-service/nodemon.json:/usr/src/auth-service/nodemon.json
+      - ./microservices/auth-service/LICENSE:/usr/src/auth-service/LICENSE:ro
+      - ./microservices/auth-service/README.md:/usr/src/auth-service/README.md:ro
+      - ./microservices/auth-service/.env:/usr/src/auth-service/.env
+      - ./microservices/auth-service/.env:/usr/src/auth-service/.auth.env
+      - ./microservices/auth-service/.env:/usr/src/auth-service/.db.env
+    command: sh -c "if [ \"$AUTH_NODE_ENV\" = 'production' ]; then npm start; else npm run dev; fi"
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=echonet
+      - traefik.http.routers.auth-service.tls=true # Використовувати HTTPS
+      - traefik.http.routers.auth-service.entrypoints=websecure
+      - traefik.http.routers.auth-service.rule=Host("${AUTH_HOSTNAME}")
+      - traefik.http.services.auth-service.loadbalancer.server.port=${AUTH_HTTP_PORT} 
+      - traefik.http.services.auth-service.loadbalancer.sticky.cookie=true
+      
+      # - "traefik.http.routers.auth-service.tls.certresolver=myresolver" # Використовувати ACME resolver
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "[ \"$AUTH_USE_HTTPS\" = 'true' ] && curl -k -f https://localhost:${AUTH_HTTPS_PORT}/health || curl -f http://localhost:${AUTH_HTTP_PORT}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - echonet
+      - auth
+
+  web-service:
+    container_name: ${WEB_SERVICE_NAME}
+    image: web-service:latest
+    build:
+      context: ./microservices/web-service/
+      dockerfile: ./dockerfile
+    expose:
+      - ${WEB_HTTP_PORT}
+      - ${WEB_HTTPS_PORT}
+    ports:
+      - 9229:9229
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./microservices/web-service/src
+          target: /usr/src/web-service/src
+          ignore:
+            - public/
+        - action: rebuild
+          path: ./microservices/web-service/package.json
+          target: /usr/src/web-service/package.json
+          ignore:
+            - node_modules/
+            - logs/
+    env_file:
+      - path: ./microservices/web-service/.env
+        required: true
+    # environment:
+    #   - NODE_ENV=${NODE_ENV}
+    #   - TZ=${TZ}
+    #   - CONSOLE_LOG_LEVEL=${CONSOLE_LOG_LEVEL}
+    #   - SERVICE_NAME=${SERVICE_NAME}
+    #   - WEB_HOSTNAME=${WEB_HOSTNAME}
+    #   - WEB_HTTP_PORT=${WEB_HTTP_PORT}
+    #   - WEB_HTTPS_PORT=${WEB_HTTPS_PORT}
+    #   - USE_HTTP=${USE_HTTP}
+    #   - USE_HTTPS=${USE_HTTPS}
+    #   - HTTPS_CERT_PATH=${HTTPS_CERT_PATH}
+    #   - HTTPS_CERT_KEY_PATH=${HTTPS_CERT_KEY_PATH}
+    volumes:
+      - ./microservices/web-service/.vscode:/usr/src/web-service/.vscode
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=echonet"
+
+      # Маршрутизатор без авторизації для решти маршрутів
+      - "traefik.http.routers.web-service.tls=true" # Використовувати HTTPS
+      - "traefik.http.routers.web-service.entrypoints=websecure"
+      - "traefik.http.routers.web-service.rule=Host(`${WEB_HOSTNAME}`)"
+      - "traefik.http.routers.web-service.service=web-service@docker" # Явно вказуємо ім'я сервісу
+      - "traefik.http.services.web-service.loadbalancer.server.port=${WEB_HTTP_PORT}"
+      - "traefik.http.services.web-service.loadbalancer.sticky.cookie=true"
+
+      # Маршрутизатор з авторизацією для /protected
+      - "traefik.http.routers.web-service-secure.tls=true" # Використовувати HTTPS
+      - "traefik.http.routers.web-service-secure.entrypoints=websecure"
+      - "traefik.http.routers.web-service-secure.rule=Host(`${WEB_HOSTNAME}`) && PathPrefix(`/protected`)"
+      - "traefik.http.routers.web-service-secure.middlewares=auth"
+      - "traefik.http.routers.web-service-secure.service=web-service-secure@docker" # Явно вказуємо інше ім'я сервісу
+      - "traefik.http.services.web-service-secure.loadbalancer.server.port=${WEB_HTTP_PORT}"
+      
+    depends_on:
+      auth-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "[ \"$WEB_USE_HTTPS\" = 'true' ] && curl -k -f https://localhost:${WEB_HTTPS_PORT}/health || curl -f http://localhost:${WEB_HTTP_PORT}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - echonet

@@ -1,0 +1,31 @@
+[ req ]
+default_bits       = 2048
+distinguished_name = req_distinguished_name
+req_extensions     = req_ext
+x509_extensions    = v3_req
+prompt             = no
+
+[ req_distinguished_name ]
+C  = UA
+ST = Kharkiv
+L  = Kharkiv
+O  = Ievgen Ryzhykh
+CN = auth.localhost
+
+[ req_ext ]
+subjectAltName = @alt_names
+
+[ v3_req ]
+subjectAltName = @alt_names
+
+[ alt_names ]
+DNS.1  = auth.localhost
+DNS.2  = www.auth.localhost
+DNS.3  = api.localhost
+DNS.4  = www.api.localhost
+DNS.5  = traefik.localhost
+DNS.6  = www.traefik.localhost
+DNS.7  = web.localhost
+DNS.8  = www.web.localhost
+DNS.9  = dashboard.localhost
+DNS.10 = www.dashboard.localhost

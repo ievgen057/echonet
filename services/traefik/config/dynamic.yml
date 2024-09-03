@@ -1,0 +1,14 @@
+## DYNAMIC CONFIG
+
+tls:
+  certificates:
+    - certFile: /certs/cert.pem
+      keyFile: /certs/key.pem
+
+# when testing certs, enable this so traefik doesn't use 
+# it's own self signed. By default if it can't find a matching
+# cert, it'll just create it's own which will cause cert warnings
+# in browser
+  options:
+    default:
+      sniStrict: true

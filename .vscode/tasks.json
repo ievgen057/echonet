@@ -1,0 +1,71 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Watch",
+            "type": "shell",
+            "command": "docker-compose",
+            "args": [
+                "up",
+                "--watch",
+                "--build"
+            ],
+            "problemMatcher": [],
+            "isBackground": true,
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "detail": "Білдить Docker Compose, Вотчить контейнери"
+        },
+        {
+            "label": "Build",
+            "type": "shell",
+            "command": "docker-compose",
+            "args": [
+                "up",
+				"-d",
+                "--build"
+            ],
+            "problemMatcher": [],
+            "isBackground": true,
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "detail": "Білдить Docker Compose, піднімає контейнери"
+        },
+        {
+            "label": "Logs",
+            "type": "shell",
+            "command": "docker-compose",
+            "args": [
+                "logs",
+                "-f"
+            ],
+            "problemMatcher": [],
+            "isBackground": true,
+            "dependsOn": "Build",
+            "group": {
+                "kind": "none",
+                "isDefault": false
+            },
+            "detail": "Підключається до логів Docker Compose після підняття контейнерів"
+        },
+		{
+			"label": "Start",
+            "dependsOn": ["Build", "Logs"],
+			"detail": "Запускає білд і підключається до логів"
+		},
+		{
+			"label": "Stop",
+            "type": "shell",
+            "command": "docker-compose",
+			"args": [
+                "down",
+				"-v"
+            ],
+			"detail": "Зупиняє стек"
+		}
+    ]
+}

@@ -1,0 +1,6 @@
+[submodule "microservices/web-service"]
+	path = microservices/web-service
+	url = https://github.com/ievgen057/web-service.git
+[submodule "microservices/auth-service"]
+	path = microservices/auth-service
+	url = https://github.com/ievgen057/auth-service.git

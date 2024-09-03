@@ -1,0 +1,34 @@
+services:
+  traefik:
+    image: traefik:latest
+    container_name: traefik
+    command:
+      - "--api.insecure=true" # Включення панелі адміністратора Traefik (небезпечно для продакшн)
+      - "--providers.docker=true" # Активація провайдера Docker
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80" # Налаштування вхідної точки для HTTP
+      - "--entrypoints.websecure.address=:443" # Налаштування вхідної точки для HTTPS
+      - "--entrypoints.websecure.http.tls=true"
+      - "--providers.file.filename=/config/traefik.yml"
+      # - "--certificatesresolvers.myresolver.acme.httpchallenge=true" # Налаштування ACME для автоматичного отримання SSL сертифікатів
+      # - "--certificatesresolvers.myresolver.acme.httpchallenge.entrypoint=web"
+      # - "--certificatesresolvers.myresolver.acme.email=jsilverhost@gmail.com" # Ваш email для Let's Encrypt
+      # - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json" # Місце зберігання сертифікатів
+    ports:
+      - "80:80" # Порт для HTTP
+      - "443:443" # Порт для HTTPS
+      - "8080:8080" # Порт для панелі адміністратора Traefik
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock" # Доступ до Docker API
+      # - "./certs/letsencrypt:/letsencrypt" # Місце зберігання сертифікатів (використання ${PWD} для поточного каталогу)
+      - "./certs/openssl/traefik.crt:/certs/traefik.crt:ro"
+      - "./certs/openssl/traefik.key:/certs/traefik.key:ro"
+      - "./config/traefik-config.yml:/config/traefik.yml:ro"
+      # - "./config/dynamic-config.yml:/dynamic.yml:ro"
+    networks:
+      - echonet
+
+networks:
+  echonet:
+    name: echonet
+    driver: bridge
