@@ -190,7 +190,7 @@ services:
       - ${WEB_HTTPS_PORT}
     ports:
       - 9229:9229
-    develop:
+    develop: 
       watch:
         - action: sync+restart
           path: ./microservices/web-service/src
@@ -220,6 +220,7 @@ services:
     #   - HTTPS_CERT_KEY_PATH=${HTTPS_CERT_KEY_PATH}
     volumes:
       - ./microservices/web-service/.vscode:/usr/src/web-service/.vscode
+      - ./microservices/web-service/src/public:/usr/src/web-service/src/public
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=echonet"
